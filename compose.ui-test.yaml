@@ -1,0 +1,14 @@
+services:
+  ui-test:
+    image: taskmaster:local
+    env_file: .env
+    environment:
+      DATABASE_URL: ${TEST_DATABASE_URL}
+      APP_URL: http://127.0.0.1:8098/taskmaster/
+    command: [python, -c, "from fastapi import FastAPI; from app.api import app; import uvicorn; wrapper=FastAPI(); wrapper.mount('/taskmaster', app); uvicorn.run(wrapper, host='0.0.0.0', port=8000, access_log=False)"]
+    ports: ['127.0.0.1:8098:8000']
+    volumes: [test-attachments:/data/attachments]
+    mem_limit: 256m
+    restart: 'no'
+volumes:
+  test-attachments:

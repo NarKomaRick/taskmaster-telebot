@@ -1,0 +1,10 @@
+example.com {
+    encode zstd gzip
+    redir /taskmaster /taskmaster/ 308
+    handle_path /taskmaster/* {
+        request_body {
+            max_size 11MB
+        }
+        reverse_proxy taskmaster-api:8000
+    }
+}
