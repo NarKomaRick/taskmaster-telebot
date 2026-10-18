@@ -2,6 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from html import escape
+from contextvars import ContextVar
 from zoneinfo import ZoneInfo
 from aiogram import Bot, Dispatcher, F, Router, BaseMiddleware
 from aiogram.client.default import DefaultBotProperties
@@ -24,6 +25,7 @@ from .personal_parser import local_now, parse_note, parse_reminder_time
 cfg = settings()
 router = Router()
 router.message.filter(F.chat.type == 'private')
+current_database = ContextVar('bot_database', default=None)
 
 
 class Flow(StatesGroup):
@@ -50,10 +52,16 @@ class DatabaseMiddleware(BaseMiddleware):
         if not sender or sender.is_bot:
             return
         try:
-            async with Session.begin() as db:
-                user = await svc.register(db, sender.model_dump())
-                data.update(db=db, user=user)
-                return await handler(event, data)
+            async with Session() as db:
+                token = current_database.set(db)
+                try:
+                    user = await svc.register(db, sender.model_dump())
+                    data.update(db=db, user=user)
+                    result = await handler(event, data)
+                    await db.commit()
+                    return result
+                finally:
+                    current_database.reset(token)
         except (HTTPException, ValidationError, ValueError) as error:
             text = str(error.detail) if isinstance(error, HTTPException) else 'Проверьте текст, дату и время.'
             inner = event.callback_query or event.message
@@ -65,12 +73,15 @@ class DatabaseMiddleware(BaseMiddleware):
             logging.exception('Bot update failed')
             inner = event.callback_query or event.message
             if isinstance(inner, CallbackQuery):
-                await inner.answer('Не удалось сохранить. Попробуйте ещё раз.', show_alert=True)
+                await inner.answer('Не удалось завершить действие. Проверьте список дел.', show_alert=True)
             elif inner:
-                await inner.answer('Не удалось сохранить. Попробуйте ещё раз.')
+                await inner.answer('Не удалось завершить действие. Проверьте список дел.')
 
 
 async def send(event, text, markup=None):
+    db = current_database.get()
+    if db is not None:
+        await db.commit()
     if isinstance(event, CallbackQuery):
         await event.answer()
         await event.message.answer(text, reply_markup=markup)
@@ -252,6 +263,7 @@ async def voice(message: Message, db, user, state: FSMContext):
     if message.voice.duration > 120 or (message.voice.file_size or 0) > 5*1024*1024:
         return await message.answer('Пришлите голосовое до 2 минут и 5 МБ.')
     await db.execute(insert(PersonalCapture).values(user_id=user.id, message_id=message.message_id, file_id=message.voice.file_id, state='queued', created_at=message.date).on_conflict_do_nothing())
+    await db.commit()
     await message.answer('Слушаю голосовое. Покажу текст и срок для проверки.')
 
 

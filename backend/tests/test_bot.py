@@ -91,5 +91,17 @@ async def test_personal_bot_capture_reminders_voice_and_replay(database, monkeyp
         tasks = (await db.scalars(select(PersonalTask))).all()
         assert len(tasks) == 2
         assert tasks[1].title == 'Купить фильтр'
+    original_request = transport.make_request
+    async def fail_confirmation_once(bot, method, timeout=None):
+        if isinstance(method, SendMessage) and 'Когда напомнить?' in method.text:
+            transport.make_request = original_request
+            raise OSError('Telegram temporarily offline')
+        return await original_request(bot, method, timeout)
+    transport.make_request = fail_confirmation_once
+    await message('Дело должно сохраниться даже без ответа', message_id=60)
+    async with database() as db:
+        capture = await db.scalar(select(PersonalCapture).where(PersonalCapture.message_id == 60))
+        assert capture.task_id
+        assert (await db.get(PersonalTask, capture.task_id)).title == 'Дело должно сохраниться даже без ответа'
     await dispatcher.storage.close()
     await bot.session.close()
