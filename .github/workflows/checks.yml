@@ -43,6 +43,8 @@ jobs:
       - run: mkdir -p /tmp/taskmaster-attachments
       - run: python -m pytest -q
         working-directory: backend
+      - run: python -m tests.check_migrations
+        working-directory: backend
   frontend:
     runs-on: ubuntu-latest
     steps:

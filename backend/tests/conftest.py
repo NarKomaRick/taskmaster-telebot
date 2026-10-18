@@ -39,9 +39,13 @@ async def database(monkeypatch):
     app.dependency_overrides[session] = override
     import app.api as api_module
     import app.worker as worker_module
+    import app.personal_delivery as personal_delivery
+    import app.speech_worker as speech_worker
     redis = Redis.from_url(settings().redis_url)
     monkeypatch.setattr(api_module, 'redis', redis)
     monkeypatch.setattr(worker_module, 'Session', factory)
+    monkeypatch.setattr(personal_delivery, 'Session', factory)
+    monkeypatch.setattr(speech_worker, 'Session', factory)
     yield factory
     app.dependency_overrides.clear()
     await redis.aclose()

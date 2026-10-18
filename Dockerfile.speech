@@ -1,0 +1,9 @@
+ARG SPEECH_BASE=taskmaster:local
+FROM ${SPEECH_BASE}
+USER root
+RUN if ! command -v ffmpeg; then apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*; fi
+RUN python -c "import importlib.metadata; assert importlib.metadata.version('vosk') == '0.3.45'" || pip install --no-cache-dir vosk==0.3.45
+RUN python -c "import io,urllib.request,zipfile,pathlib; path=pathlib.Path('/opt/vosk-model-small-ru-0.22'); exit(0) if path.is_dir() else None; data=urllib.request.urlopen('https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip',timeout=120).read(); z=zipfile.ZipFile(io.BytesIO(data)); assert all(n.startswith('vosk-model-small-ru-0.22/') and '..' not in n.split('/') for n in z.namelist()); z.extractall('/opt')"
+COPY --chown=appuser:appuser backend /app
+USER appuser
+CMD ["python", "-m", "app.speech_worker"]

@@ -23,6 +23,8 @@ from .config import settings
 from .db import engine, session
 from .models import *
 from .schemas import *
+from . import personal as pd
+from .personal_parser import parse_note
 
 cfg = settings()
 redis = Redis.from_url(cfg.redis_url)
@@ -535,6 +537,36 @@ async def github_webhook(repo_id: int, request: Request, db: DB):
             await svc.notify(db, repo.project_id, None, 'github', f'{task.key}: GitHub {kind}\n{content[:500]}\n{url}', f'github:{repo_id}:{delivery}:{task.id}:{hashlib.sha256(url.encode()).hexdigest()[:16]}')
             linked += 1
     return {'linked': linked}
+
+
+@app.get('/api/personal/tasks')
+async def personal_list(db: DB, user: Auth):
+    return await pd.listing(db, user.id)
+
+
+@app.post('/api/personal/tasks', status_code=201)
+async def personal_create(payload: pd.CaptureInput, db: DB, user: Auth):
+    parsed = parse_note(payload.text)
+    task = await pd.create(db, user.id, payload.text, parsed)
+    return {**await pd.details(db, user.id, task.id), 'needs_date': parsed['needs_date']}
+
+
+@app.patch('/api/personal/tasks/{task_id}')
+async def personal_edit(task_id: int, payload: pd.PersonalEdit, db: DB, user: Auth):
+    await pd.edit(db, user.id, task_id, payload)
+    return await pd.details(db, user.id, task_id)
+
+
+@app.put('/api/personal/tasks/{task_id}/reminder')
+async def personal_reminder(task_id: int, payload: pd.ReminderInput, db: DB, user: Auth):
+    await pd.set_reminder(db, user.id, task_id, payload)
+    return await pd.details(db, user.id, task_id)
+
+
+@app.delete('/api/personal/tasks/{task_id}/reminder')
+async def personal_reminder_cancel(task_id: int, db: DB, user: Auth):
+    await pd.cancel_reminder(db, user.id, task_id)
+    return await pd.details(db, user.id, task_id)
 
 
 static_dir = Path('/app/static')

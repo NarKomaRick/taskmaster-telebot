@@ -185,3 +185,46 @@ class WebhookDelivery(Record, Base):
     __table_args__ = (UniqueConstraint('repository_id', 'delivery_id'),)
     repository_id: Mapped[int] = mapped_column(ForeignKey('github_repositories.id'), index=True)
     delivery_id: Mapped[str] = mapped_column(String(100))
+
+
+class PersonalTask(Record, Base):
+    __tablename__ = 'personal_tasks'
+    __table_args__ = (UniqueConstraint('user_id', 'source_task_id'), CheckConstraint("bucket IN ('inbox', 'today', 'later')"), Index('ix_personal_tasks_user_due', 'user_id', 'due_at'))
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    note: Mapped[str] = mapped_column(Text, default='')
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    due_has_time: Mapped[bool] = mapped_column(Boolean, default=False)
+    bucket: Mapped[str] = mapped_column(String(20), default='inbox')
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    source_task_id: Mapped[int | None] = mapped_column(ForeignKey('tasks.id'), index=True)
+
+
+class PersonalReminder(Record, Base):
+    __tablename__ = 'personal_reminders'
+    __table_args__ = (CheckConstraint('interval_seconds IN (0, 3600, 86400, 259200, 604800)'),)
+    task_id: Mapped[int] = mapped_column(ForeignKey('personal_tasks.id'), unique=True)
+    next_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    interval_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class PersonalCapture(Record, Base):
+    __tablename__ = 'personal_captures'
+    __table_args__ = (UniqueConstraint('user_id', 'message_id'),)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), index=True)
+    message_id: Mapped[int] = mapped_column(BigInteger)
+    file_id: Mapped[str | None] = mapped_column(String(500))
+    transcript: Mapped[str | None] = mapped_column(Text)
+    draft: Mapped[dict | None] = mapped_column(JSON)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey('personal_tasks.id'), index=True)
+    state: Mapped[str] = mapped_column(String(24), default='queued', index=True)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    notified: Mapped[bool] = mapped_column(Boolean, default=False)

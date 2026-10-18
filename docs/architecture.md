@@ -1,5 +1,7 @@
 # Telegram Task Manager
 
+Historical design for version 1. Current product: see personal-dispatcher.md.
+
 ## Architecture
 
 One Python application supplies three entry points: FastAPI, aiogram polling bot and an outbox worker. They share an asynchronous domain service layer and PostgreSQL. Redis stores conversational states and request limits. The React Mini App uses the same domain API, with Telegram initData authentication. Static assets are served by FastAPI behind the existing HTTPS Caddy proxy. No inbound Telegram webhook is required for polling.

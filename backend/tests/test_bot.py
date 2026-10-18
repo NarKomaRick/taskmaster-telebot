@@ -27,7 +27,11 @@ class FakeTelegram(BaseSession):
         yield b''
 
 
-async def test_bot_registration_project_create_confirmation_and_status(database, monkeypatch):
+async def test_personal_bot_capture_reminders_voice_and_replay(database, monkeypatch):
+    from datetime import timedelta
+    from app.models import PersonalTask, PersonalCapture, PersonalReminder, utcnow
+    from app.personal_parser import parse_note
+    from aiogram.types import Voice
     monkeypatch.setattr(bot_module, 'Session', database)
     transport = FakeTelegram()
     bot = Bot('123456:TESTONLY', session=transport)
@@ -37,10 +41,11 @@ async def test_bot_registration_project_create_confirmation_and_status(database,
     sender = TelegramUser(id=900000100, is_bot=False, first_name='Bot test')
     index = 0
 
-    async def message(text):
+    async def message(text=None, message_id=None, voice=False):
         nonlocal index
         index += 1
-        msg = Message(message_id=index, date=datetime.now(timezone.utc), chat=Chat(id=sender.id, type='private'), from_user=sender, text=text)
+        msg = Message(message_id=message_id or index, date=datetime.now(timezone.utc), chat=Chat(id=sender.id, type='private'), from_user=sender,
+                      text=text, voice=Voice(file_id='test-voice', file_unique_id='test-unique', duration=8, file_size=1000) if voice else None)
         await dispatcher.feed_update(bot, Update(update_id=index, message=msg))
 
     async def callback(data):
@@ -51,27 +56,40 @@ async def test_bot_registration_project_create_confirmation_and_status(database,
         await dispatcher.feed_update(bot, Update(update_id=index, callback_query=query))
 
     await message('/start')
-    await callback('project_new')
-    await message('BOT Bot project')
+    await message('Через неделю сдать проект по вышмату', message_id=20)
+    await message('Через неделю сдать проект по вышмату', message_id=20)
     async with database() as db:
-        project = await db.scalar(select(Project))
-        assert project is not None
-        project_id = project.id
-    await message('Создай задачу проверить бот завтра в проект BOT')
+        tasks = (await db.scalars(select(PersonalTask))).all()
+        assert len(tasks) == 1 and tasks[0].due_at
+        task_id, version = tasks[0].id, tasks[0].version
+    assert any('Когда напомнить?' in text for text in transport.sent)
+    await callback(f'pwhen:{task_id}:before1')
+    assert any('Как часто повторять?' in text for text in transport.sent)
+    stamp = int((utcnow()+timedelta(days=1)).timestamp())
+    await callback(f'pfreq:{task_id}:{version}:{stamp}:86400')
     async with database() as db:
-        assert not (await db.scalars(select(Task))).all()
-    assert any('Проверьте задачу' in text for text in transport.sent)
-    await callback(f'confirm_create:{project_id}')
-    await callback(f'confirm_create:{project_id}')
+        reminder = await db.scalar(select(PersonalReminder))
+        assert reminder.enabled and reminder.interval_seconds == 86400
+    await callback(f'pdone:{task_id}')
+    await callback(f'ptoggle:{task_id}:1')
+    await callback(f'ptoggle:{task_id}:1')
     async with database() as db:
-        tasks = (await db.scalars(select(Task))).all()
-        assert len(tasks) == 1
-        task = tasks[0]
-        assert task.key == 'BOT-1' and task.title == 'проверить бот'
-        task_id = task.id
-    await callback(f'set:priority:{task_id}:1:Critical')
+        assert not (await db.scalar(select(PersonalReminder))).enabled
+        assert (await db.get(PersonalTask, task_id)).done_at
+    await message(voice=True, message_id=30)
+    await message(voice=True, message_id=30)
+    async with database.begin() as db:
+        captures = (await db.scalars(select(PersonalCapture).where(PersonalCapture.file_id.is_not(None)))).all()
+        assert len(captures) == 1
+        capture = captures[0]
+        capture.state, capture.transcript = 'draft', 'Купить фильтр завтра'
+        capture.draft = parse_note(capture.transcript)
+        capture_id = capture.id
+    await callback(f'vsave:{capture_id}')
+    await callback(f'vsave:{capture_id}')
     async with database() as db:
-        task = await db.get(Task, task_id)
-        assert task.priority == 'Critical' and task.version == 2
+        tasks = (await db.scalars(select(PersonalTask))).all()
+        assert len(tasks) == 2
+        assert tasks[1].title == 'Купить фильтр'
     await dispatcher.storage.close()
     await bot.session.close()

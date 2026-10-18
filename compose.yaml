@@ -82,6 +82,18 @@ services:
     healthcheck:
       test: [CMD, python, -c, 'import os; os.kill(1, 0)']
       interval: 30s
+  speech:
+    <<: *app
+    image: taskmaster-speech:local
+    build:
+      context: .
+      dockerfile: Dockerfile.speech
+    command: [python, -m, app.speech_worker]
+    mem_limit: 512m
+    cpus: 1.5
+    healthcheck:
+      test: [CMD, python, -c, 'import os; os.kill(1, 0)']
+      interval: 30s
   test:
     <<: *app
     profiles: [test]

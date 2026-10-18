@@ -22,9 +22,12 @@ class TelegramDelivery:
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=20, proxy=settings().bot_proxy or None)
 
-    async def send_message(self, telegram_id, text):
+    async def send_message(self, telegram_id, text, reply_markup=None):
+        payload = {'chat_id': telegram_id, 'text': text}
+        if reply_markup:
+            payload['reply_markup'] = reply_markup
         response = await self.client.post(f'https://api.telegram.org/bot{settings().bot_token}/sendMessage',
-                                          json={'chat_id': telegram_id, 'text': text})
+                                          json=payload)
         if response.status_code == 403:
             raise DeliveryForbidden()
         if response.status_code == 429:
@@ -76,16 +79,16 @@ async def deliver_one(bot):
 
 
 async def main():
+    from .personal_delivery import deliver_personal
     logging.basicConfig(level=logging.INFO)
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('httpcore').setLevel(logging.WARNING)
     bot = TelegramDelivery()
-    last_scan = 0
     try:
         while True:
             try:
-                if asyncio.get_running_loop().time() - last_scan >= 300:
-                    await schedule_deadlines()
-                    last_scan = asyncio.get_running_loop().time()
-                if not await deliver_one(bot):
+                sent = await deliver_personal(bot)
+                if not await deliver_one(bot) and not sent:
                     await asyncio.sleep(3)
             except Exception:
                 logging.exception('Worker cycle failed')
